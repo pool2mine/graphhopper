@@ -18,7 +18,7 @@
 
 import Sidebar from "./sidebar/Sidebar.js";
 import Map from "./map/Map.js";
-import {CreateQuery, ParseQuery, TimeOption} from "../data/Query.js";
+import { CreateQuery, ParseQuery, TimeOption } from "../data/Query.js";
 import Path from "../data/Path.js";
 
 export default class App extends React.Component {
@@ -49,18 +49,64 @@ export default class App extends React.Component {
     componentDidMount() {
         window.fetch("/info")
             .then(response => response.ok ? response.json() : Promise.reject(response.statusText))
-            .then(info => this.setState({info: info}))
+            .then(info => this.setState({ info: info }))
             .catch(error => console.log("Error in Webrequest. Code: " + error));
     }
 
-    componentDidUpdate(prevProps, prevState) {
-        if (this.state.info !== null) { // Maybe better: Create a wrapper component that only renders this one when info is ready
-            if (this.state.from !== null && this.state.to !== null) { // The only ways our state would not correspond to a valid query
+    fetchCoordinates(address) {
+        const url = `http://170.39.103.202/nominatim/search?q=${encodeURIComponent(address)}&format=json`;
+        return window.fetch(url)
+            .then(response => response.ok ? response.json() : Promise.reject("Failed to fetch coordinates"))
+            .then(data => {
+                if (data.length > 0) {
+                    return {
+                        lat: parseFloat(data[0].lat),
+                        lon: parseFloat(data[0].lon)
+                    };
+                } else {
+                    throw new Error("No results found");
+                }
+            });
+    }
+
+    onSubmit = async (e) => {
+        const { from, to } = e;
+        const updates = {};
+
+        if (from && typeof from === "string") {
+            try {
+                const fromCoords = await this.fetchCoordinates(from);
+                updates.from = fromCoords;
+            } catch (error) {
+                console.error("Error fetching 'from' coordinates:", error);
+                alert(`Could not fetch coordinates for the address: ${from}`);
+                return;
+            }
+        }
+
+        if (to && typeof to === "string") {
+            try {
+                const toCoords = await this.fetchCoordinates(to);
+                updates.to = toCoords;
+            } catch (error) {
+                console.error("Error fetching 'to' coordinates:", error);
+                alert(`Could not fetch coordinates for the address: ${to}`);
+                return;
+            }
+        }
+
+        this.setState(updates, () => {
+            console.log("Updated state with coordinates:", this.state);
+            this._submitRoute();
+        });
+    }
+
+    _submitRoute() {
+        if (this.state.info !== null) {
+            if (this.state.from !== null && this.state.to !== null) {
                 let query = CreateQuery(new URL("/route", window.location), this.state);
                 let appQuery = CreateQuery(window.location, this.state);
                 if (this.state.routes.query !== query) {
-                    // What we are currently seeing or fetching is not want we want to see.
-                    // So we make a request.
                     console.log(query);
                     this.setState({
                         routes: {
@@ -72,7 +118,7 @@ export default class App extends React.Component {
                         .then(response => response.ok ? response.json() : Promise.reject())
                         .then(ghResponse => {
                             this.setState(prevState => {
-                                if (CreateQuery(new URL("/route", window.location), prevState) !== query) return {}; // This reply is not what we want to know anymore
+                                if (CreateQuery(new URL("/route", window.location), prevState) !== query) return {};
                                 console.log(ghResponse);
                                 const paths = ghResponse.paths.map(path => new Path(path));
                                 const selectedPath = this._selectPathOnReceive(paths);
@@ -123,7 +169,7 @@ export default class App extends React.Component {
             routes: this.state.routes,
             search: this.state,
             onSearchChange: e => this.setState(e),
-            onSelectIndex: i => this.setState(prevState => ({routes: this._selectRoute(prevState.routes, i)}))
+            onSelectIndex: i => this.setState(prevState => ({ routes: this._selectRoute(prevState.routes, i) }))
         })), React.createElement("div", {
             className: "map"
         }, React.createElement(Map, {
@@ -131,7 +177,7 @@ export default class App extends React.Component {
             routes: this.state.routes,
             from: this.state.from,
             to: this.state.to,
-            onSubmit: e => this.setState(e)
+            onSubmit: this.onSubmit
         })));
     }
 
@@ -141,5 +187,4 @@ export default class App extends React.Component {
         oldState.selectedRouteIndex = newSelectedRouteIndex;
         return oldState;
     }
-
 }
